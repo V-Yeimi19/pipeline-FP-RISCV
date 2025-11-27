@@ -1,0 +1,148 @@
+
+
+
+
+addi x1, x0, 5      # x1 = 5
+add  x2, x1, x1     # x2 = 5 + 5 = 10 (necesita forward de x1)
+addi x3, x2, 1      # x3 = 10 + 1 = 11 (necesita forward de x2)
+addi x4, x0, 10     # x4 = 10
+add  x3, x0, x4     # x3 = 0 + 10 = 10 (necesita forward de x4)
+addi x5, x0, 3      # x5 = 3
+add  x5, x5, x5     # x5 = 3 + 3 = 6 (forward de x5 a sí mismo)
+add  x6, x7, x5     # x6 = 0 + 6 = 6 (forward de x5)
+
+00500093
+00108133
+00110193
+00a00213
+004001b3
+00300293
+005282b3
+00538333
+
+
+
+
+
+
+### Data Hazard - Load-Use Hazard Test ###
+
+addi x1, x0, 5      # x1 = 5
+addi x2, x1, 1      # x2 = 6
+sw x2, 4(x0)        # mem[4] = 6
+lw x1, 4(x0)        # x1 = mem[4] = 6  (load en EX en ciclo N)
+add x3, x1, x2      # x3 = x1 + x2 (necesita x1 en EX en ciclo N+1) -> LOAD-USE HAZARD!
+addi x4, x3, 10     # x4 = x3 + 10
+nop
+
+00500093
+00108113
+00202223
+00402083
+002081b3
+00a18213
+00000013
+
+### Data Hazard - Load-Use Hazard with Forwarding and Stall
+
+addi s0, x0, 4     	# s0 = 4(Dirección base)
+addi t0, x0, 42      # t0 = 42 (Valor a guardar)
+sw   t0, 0(s0)       # mem[100] = 42
+
+lw   t1, 0(s0)       # Ciclo N (EX): Carga t1. t1 valdrá 42 (pero tarde)
+add  t2, t1, t1      # Ciclo N+1 (EX): ¡NECESITA t1! -> HAZARD! (t2 = t1 + t1)
+
+addi t3, t2, 8       # t3 = t2 + 8
+
+00400413
+02a00293
+00542023
+00042303
+006303b3
+00838e13
+
+###
+
+# Test para Control Hazards: beq, bne, jal, jalr
+# Verificar flushing del pipeline
+
+# Test 1: beq tomado
+addi x1, x0, 5      # x1 = 5
+addi x2, x0, 5      # x2 = 5  
+beq x1, x2, target1 # Si x1 == x2, saltar (TOMADO)
+addi x3, x0, 99     # Esta instrucción debe ser flushed
+addi x4, x0, 99     # Esta instrucción debe ser flushed
+
+target1:
+addi x5, x0, 10     # x5 = 10 (debe ejecutarse después del salto)
+
+# Test 2: beq no tomado  
+addi x6, x0, 1      # x6 = 1
+addi x7, x0, 2      # x7 = 2
+beq x6, x7, target2 # Si x6 == x7, saltar (NO TOMADO)
+addi x8, x0, 20     # x8 = 20 (debe ejecutarse, no flush)
+
+target2:
+addi x9, x0, 30     # x9 = 30
+
+# Test 3: jal
+jal x10, target3    # x10 = PC+4, saltar a target3
+addi x11, x0, 99    # Esta debe ser flushed
+addi x12, x0, 99    # Esta debe ser flushed
+
+target3:
+addi x13, x0, 40    # x13 = 40
+
+nop
+
+00500093
+00500113
+00208663
+06300193
+06300213
+00a00293
+00100313
+00200393
+00730463
+01400413
+01e00493
+00c0056f
+06300593
+06300613
+02800693
+00000013
+
+
+addi x1, x0, 4      # x1 = 4 (dirección base)
+addi x2, x0, 10     # x2 = 10
+addi x3, x0, 5      # x3 = 5
+addi x4, x0, 8      # x4 = 8
+sw x2, 0(x1)        # mem[4] = 10 (preparar para el lw)
+
+
+CÓDIGO DE PRUEBA 
+# Código de prueba
+lw x5, 0(x1)        # x5 = mem[4] = 10 (LOAD-USE HAZARD con add siguiente)
+add x6, x5, x2      # x6 = 10 + 10 = 20 (necesita stall + forward)
+sub x7, x6, x3      # x7 = 20 - 5 = 15 (forward desde x6)
+beq x7, x0, salto   # Si x7 == 0, saltar (NO TOMADO, x7=15)
+add x8, x7, x4      # x8 = 15 + 8 = 23 (se ejecuta)
+jal x9, fin         # x9 = PC+4, salta a fin (CONTROL HAZARD, flush)
+# salto:
+add x10, x0, x5     # x10 = 0 + 10 = 10 (no se ejecuta por el jal)
+# fin:
+sw x10, 0(x1)       # mem[4] = x10
+
+00400093
+00a00113
+00500193
+00800213
+0020a023
+0000a283
+00228333
+403303b3
+00038463
+00438433
+0080048f
+00528533
+00a0a023
