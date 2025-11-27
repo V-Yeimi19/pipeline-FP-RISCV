@@ -10,6 +10,8 @@ module datapath_pipeline(
   input  BranchD,
   input  [1:0]  ImmSrcD,
   input  [2:0]  ALUControlD,
+  input  RegWriteFPD,  // Nueva señal para escritura FP
+  input  FPOpD,         // Nueva señal para operación FP
 
   output MemWriteM,
   output ZeroM,
@@ -17,7 +19,7 @@ module datapath_pipeline(
   // Señales de Data
   input  [31:0] InstrF,
   input  [31:0] ReadDataM,
-  
+
   output [31:0] PCF,
   output [31:0] InstrD,
   output [31:0] ALUResultM, WriteDataM
@@ -34,6 +36,8 @@ module datapath_pipeline(
   wire BranchE, BranchM;
   wire [2:0] ALUControlE;
   wire ZeroE;
+  wire RegWriteFPE, RegWriteFPM, RegWriteFPW;  // Señales FP en pipeline
+  wire FPOpE, FPOpM, FPOpW;                     // Señales FP en pipeline
 
   // Señales internas de cada etapa del pipeline
   // Fetch
@@ -42,6 +46,8 @@ module datapath_pipeline(
   // Decode
   wire [31:0] PCD, PCPlus4D;
   wire [31:0] RD1D, RD2D, ImmExtD;
+  wire [31:0] FRD1D, FRD2D;
+  wire [31:0] RD1D_mux, RD2D_mux;
 
   // Execute
   wire [31:0] RD1E, RD2E, PCE, ImmExtE, PCPlus4E;
@@ -106,6 +112,7 @@ module datapath_pipeline(
   );
 
   // ===== DECODE =====
+  // Register file para enteros
   regfile rf(
     .clk(clk),
     .we3(RegWriteW),
@@ -117,19 +124,34 @@ module datapath_pipeline(
     .rd2(RD2D)
   );
 
+  // Register file para punto flotante
+  regfile_fp frf(
+    .clk(clk),
+    .we3(RegWriteFPW),
+    .a1(InstrD[19:15]),
+    .a2(InstrD[24:20]),
+    .a3(RdW),
+    .wd3(ResultW),
+    .rd1(FRD1D),
+    .rd2(FRD2D)
+  );
+
   extend ext(
     .instr(InstrD[31:7]),
     .immsrc(ImmSrcD),
     .immext(ImmExtD)
   );
 
+  assign RD1D_mux = FPOpD ? FRD1D : RD1D;
+  assign RD2D_mux = FPOpD ? FRD2D : RD2D;
+
   // ID/EX con soporte de flush
   idex_reg idex(
     .clk(clk),
     .reset(reset),
-    .FlushE(FlushE),    // Flush desde hazard unit
-    .RD1D(RD1D),
-    .RD2D(RD2D),
+    .FlushE(FlushE),
+    .RD1D(RD1D_mux),
+    .RD2D(RD2D_mux),
     .PCD(PCD),
     .Rs1D(InstrD[19:15]),
     .Rs2D(InstrD[24:20]),
@@ -143,6 +165,8 @@ module datapath_pipeline(
     .ALUSrcD(ALUSrcD),
     .ResultSrcD(ResultSrcD),
     .ALUControlD(ALUControlD),
+    .RegWriteFPD(RegWriteFPD),
+    .FPOpD(FPOpD),
     .RD1E(RD1E),
     .RD2E(RD2E),
     .PCE(PCE),
@@ -157,7 +181,9 @@ module datapath_pipeline(
     .BranchE(BranchE),
     .ALUSrcE(ALUSrcE),
     .ResultSrcE(ResultSrcE),
-    .ALUControlE(ALUControlE)
+    .ALUControlE(ALUControlE),
+    .RegWriteFPE(RegWriteFPE),
+    .FPOpE(FPOpE)
   );
 
   // ===== EXECUTE =====
@@ -217,7 +243,7 @@ module datapath_pipeline(
   assign WriteDataE = SrcBE_forwarded;  // Para stores, usar valor forwardeado
 
   mux2 #(WIDTH) srcbmux(
-    .d0(SrcBE_forwarded),  // Valor del registro (o forwardeado)
+    .d0(SrcBE_forwarded),  // Valor del registro
     .d1(ImmExtE),          // Immediate
     .s(ALUSrcE),
     .y(SrcBE)
@@ -227,6 +253,7 @@ module datapath_pipeline(
     .a(SrcAE),
     .b(SrcBE),
     .alucontrol(ALUControlE),
+    .fp_op(FPOpE),
     .result(ALUResultE),
     .zero(ZeroE)
   );
@@ -252,6 +279,8 @@ module datapath_pipeline(
     .BranchE(BranchE),
     .ZeroE(ZeroE),
     .ResultSrcE(ResultSrcE),
+    .RegWriteFPE(RegWriteFPE),
+    .FPOpE(FPOpE),
     .ALUResultM(ALUResultM),
     .WriteDataM(WriteDataM),
     .PCPlus4M(PCPlus4M),
@@ -262,7 +291,9 @@ module datapath_pipeline(
     .JumpM(JumpM),
     .BranchM(BranchM),
     .ZeroM(ZeroM),
-    .ResultSrcM(ResultSrcM)
+    .ResultSrcM(ResultSrcM),
+    .RegWriteFPM(RegWriteFPM),
+    .FPOpM(FPOpM)
   );
 
   // ===== MEMORY =====
@@ -279,12 +310,16 @@ module datapath_pipeline(
     .RdM(RdM),
     .RegWriteM(RegWriteM),
     .ResultSrcM(ResultSrcM),
+    .RegWriteFPM(RegWriteFPM),
+    .FPOpM(FPOpM),
     .ALUResultW(ALUResultW),
     .ReadDataW(ReadDataW),
     .PCPlus4W(PCPlus4W),
     .RdW(RdW),
     .RegWriteW(RegWriteW),
-    .ResultSrcW(ResultSrcW)
+    .ResultSrcW(ResultSrcW),
+    .RegWriteFPW(RegWriteFPW),
+    .FPOpW(FPOpW)
   );
 
   // ===== WRITEBACK =====

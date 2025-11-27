@@ -28,12 +28,14 @@ module idex_reg(input clk, reset,
                 input RegWriteD, MemWriteD, JumpD, BranchD, ALUSrcD,
                 input [1:0] ResultSrcD,
                 input [2:0] ALUControlD,
+                input RegWriteFPD, FPOpD,  // Nuevas señales FP
                 output reg [31:0] RD1E, RD2E, PCE,
                 output reg [4:0] Rs1E, Rs2E, RdE,
                 output reg [31:0] ImmExtE, PCPlus4E,
                 output reg RegWriteE, MemWriteE, JumpE, BranchE, ALUSrcE,
                 output reg [1:0] ResultSrcE,
-                output reg [2:0] ALUControlE);
+                output reg [2:0] ALUControlE,
+                output reg RegWriteFPE, FPOpE);  // Nuevas señales FP
 
   always @(posedge clk) begin
     if (reset || FlushE) begin  // Reset o Flush = insertar NOP
@@ -45,13 +47,15 @@ module idex_reg(input clk, reset,
       RdE <= 0;
       ImmExtE <= 0;
       PCPlus4E <= 0;
-      RegWriteE <= 0;  // IMPORTANTE: Deshabilitar escritura
-      MemWriteE <= 0;  // IMPORTANTE: Deshabilitar escritura a memoria
+      RegWriteE <= 0;  // Deshabilita escritura
+      MemWriteE <= 0;  // Deshabilita escritura a memoria
       JumpE <= 0;
       BranchE <= 0;
       ALUSrcE <= 0;
       ResultSrcE <= 0;
       ALUControlE <= 0;
+      RegWriteFPE <= 0;  // Deshabilita escritura FP
+      FPOpE <= 0;
     end else begin
       RD1E <= RD1D;
       RD2E <= RD2D;
@@ -68,6 +72,8 @@ module idex_reg(input clk, reset,
       ALUSrcE <= ALUSrcD;
       ResultSrcE <= ResultSrcD;
       ALUControlE <= ALUControlD;
+      RegWriteFPE <= RegWriteFPD;
+      FPOpE <= FPOpD;
     end
   end
 endmodule
@@ -78,10 +84,12 @@ module exmem_reg(input clk, reset,
                  input [4:0] RdE,
                  input RegWriteE, MemWriteE, JumpE, BranchE, ZeroE,
                  input [1:0] ResultSrcE,
+                 input RegWriteFPE, FPOpE,  // Nuevas señales FP
                  output reg [31:0] ALUResultM, WriteDataM, PCPlus4M, PCTargetM,
                  output reg [4:0] RdM,
                  output reg RegWriteM, MemWriteM, JumpM, BranchM, ZeroM,
-                 output reg [1:0] ResultSrcM);
+                 output reg [1:0] ResultSrcM,
+                 output reg RegWriteFPM, FPOpM);  // Nuevas señales FP
 
   always @(posedge clk) begin
     if (reset) begin
@@ -96,6 +104,8 @@ module exmem_reg(input clk, reset,
       BranchM <= 0;
       ZeroM <= 0;
       ResultSrcM <= 0;
+      RegWriteFPM <= 0;
+      FPOpM <= 0;
     end else begin
       ALUResultM <= ALUResultE;
       WriteDataM <= WriteDataE;
@@ -108,6 +118,8 @@ module exmem_reg(input clk, reset,
       BranchM <= BranchE;
       ZeroM <= ZeroE;
       ResultSrcM <= ResultSrcE;
+      RegWriteFPM <= RegWriteFPE;
+      FPOpM <= FPOpE;
     end
   end
 endmodule
@@ -118,10 +130,12 @@ module memwb_reg(input clk, reset,
                  input [4:0] RdM,
                  input RegWriteM,
                  input [1:0] ResultSrcM,
+                 input RegWriteFPM, FPOpM,  // Nuevas señales FP
                  output reg [31:0] ALUResultW, ReadDataW, PCPlus4W,
                  output reg [4:0] RdW,
                  output reg RegWriteW,
-                 output reg [1:0] ResultSrcW);
+                 output reg [1:0] ResultSrcW,
+                 output reg RegWriteFPW, FPOpW);  // Nuevas señales FP
 
   always @(posedge clk) begin
     if (reset) begin
@@ -131,6 +145,8 @@ module memwb_reg(input clk, reset,
       RdW <= 0;
       RegWriteW <= 0;
       ResultSrcW <= 0;
+      RegWriteFPW <= 0;
+      FPOpW <= 0;
     end else begin
       ALUResultW <= ALUResultM;
       ReadDataW <= ReadDataM;
@@ -138,6 +154,8 @@ module memwb_reg(input clk, reset,
       RdW <= RdM;
       RegWriteW <= RegWriteM;
       ResultSrcW <= ResultSrcM;
+      RegWriteFPW <= RegWriteFPM;
+      FPOpW <= FPOpM;
     end
   end
 endmodule

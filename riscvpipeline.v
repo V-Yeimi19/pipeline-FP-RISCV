@@ -18,6 +18,8 @@ module riscvpipeline(input  clk, reset,
   wire ZeroM;
   wire [31:0] InstrD;
   wire PCSrcM_unused;  // Not used in pipeline version
+  wire RegWriteFPD;    // Señal FP para escritura en FP regfile
+  wire FPOpD;          // Señal FP para operación FP
 
   // Controller instantiation
   controller c(
@@ -33,7 +35,9 @@ module riscvpipeline(input  clk, reset,
     .Jump(JumpD),
     .Branch(BranchD),
     .ImmSrc(ImmSrcD),
-    .ALUControl(ALUControlD)
+    .ALUControl(ALUControlD),
+    .RegWriteFP(RegWriteFPD),
+    .FPOp(FPOpD)
   );
 
   // Datapath instantiation
@@ -48,6 +52,8 @@ module riscvpipeline(input  clk, reset,
     .BranchD(BranchD),
     .ImmSrcD(ImmSrcD),
     .ALUControlD(ALUControlD),
+    .RegWriteFPD(RegWriteFPD),
+    .FPOpD(FPOpD),
     .ZeroM(ZeroM),
     .PCF(PCF),
     .InstrF(InstrF),
