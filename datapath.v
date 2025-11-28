@@ -1,4 +1,4 @@
-// Pipelined Datapath
+// Pipelined Datapath - Integración completa de FP y LUI
 module datapath_pipeline(
   input  clk, reset,
   // Señales de control(Decode)
@@ -8,10 +8,8 @@ module datapath_pipeline(
   input  MemWriteD,
   input  JumpD,
   input  BranchD,
-  input  [1:0]  ImmSrcD,
+  input  [2:0]  ImmSrcD,      // ← CAMBIO: de [1:0] a [2:0]
   input  [2:0]  ALUControlD,
-  input  RegWriteFPD,  // Nueva señal para escritura FP
-  input  FPOpD,         // Nueva señal para operación FP
 
   output MemWriteM,
   output ZeroM,
@@ -19,7 +17,7 @@ module datapath_pipeline(
   // Señales de Data
   input  [31:0] InstrF,
   input  [31:0] ReadDataM,
-
+  
   output [31:0] PCF,
   output [31:0] InstrD,
   output [31:0] ALUResultM, WriteDataM
@@ -36,8 +34,6 @@ module datapath_pipeline(
   wire BranchE, BranchM;
   wire [2:0] ALUControlE;
   wire ZeroE;
-  wire RegWriteFPE, RegWriteFPM, RegWriteFPW;  // Señales FP en pipeline
-  wire FPOpE, FPOpM, FPOpW;                     // Señales FP en pipeline
 
   // Señales internas de cada etapa del pipeline
   // Fetch
@@ -46,14 +42,14 @@ module datapath_pipeline(
   // Decode
   wire [31:0] PCD, PCPlus4D;
   wire [31:0] RD1D, RD2D, ImmExtD;
-  wire [31:0] FRD1D, FRD2D;
-  wire [31:0] RD1D_mux, RD2D_mux;
+  wire is_lui_D;
 
   // Execute
   wire [31:0] RD1E, RD2E, PCE, ImmExtE, PCPlus4E;
   wire [31:0] SrcAE, SrcBE, ALUResultE, WriteDataE;
   wire [31:0] PCTargetE;
   wire [4:0] Rs1E, Rs2E, RdE;
+  wire is_lui_E;
 
   // Memory
   wire [31:0] PCPlus4M, PCTargetM;
@@ -72,14 +68,23 @@ module datapath_pipeline(
   wire StallF, StallD, FlushD, FlushE;
   
   // Control hazard signals
-  wire PCSrcE;  // Decisión de salto en EX
+  wire PCSrcE;
+
+  // ===== Señales para FP ALU =====
+  wire [31:0] FP_result;
+  wire [4:0] FP_flags;
+  wire FP_enable;
+  wire [31:0] ALUResultE_int;
+  wire is_fp_op;
+  
+  assign FP_enable = !StallF;
+  assign is_fp_op = ALUControlE[2];
 
   // ===== FETCH =====
-  // PC register con enable para stalling
   flopenr #(WIDTH) pcreg(
     .clk(clk),
     .reset(reset),
-    .en(!StallF),      // Solo avanzar PC si no hay stall
+    .en(!StallF),
     .d(PCNextF),
     .q(PCF)
   );
@@ -92,17 +97,16 @@ module datapath_pipeline(
 
   mux2 #(WIDTH) pcmux(
     .d0(PCPlus4F),
-    .d1(PCTargetE),     // Salto desde EX, no desde MEM
-    .s(PCSrcE),         // Decisión en EX, no en MEM
+    .d1(PCTargetE),
+    .s(PCSrcE),
     .y(PCNextF)
   );
 
-  // IF/ID con soporte de stalling y flushing
   ifid_reg ifid(
     .clk(clk),
     .reset(reset),
-    .StallD(StallD),    // Stall desde hazard unit
-    .FlushD(FlushD),    // Flush desde hazard unit (control hazards)
+    .StallD(StallD),
+    .FlushD(FlushD),
     .InstrF(InstrF),
     .PCF(PCF),
     .PCPlus4F(PCPlus4F),
@@ -112,7 +116,9 @@ module datapath_pipeline(
   );
 
   // ===== DECODE =====
-  // Register file para enteros
+  
+  assign is_lui_D = (InstrD[6:0] == 7'b0110111);
+  
   regfile rf(
     .clk(clk),
     .we3(RegWriteW),
@@ -124,34 +130,18 @@ module datapath_pipeline(
     .rd2(RD2D)
   );
 
-  // Register file para punto flotante
-  regfile_fp frf(
-    .clk(clk),
-    .we3(RegWriteFPW),
-    .a1(InstrD[19:15]),
-    .a2(InstrD[24:20]),
-    .a3(RdW),
-    .wd3(ResultW),
-    .rd1(FRD1D),
-    .rd2(FRD2D)
-  );
-
   extend ext(
     .instr(InstrD[31:7]),
-    .immsrc(ImmSrcD),
+    .immsrc(ImmSrcD),    // ← Ahora es [2:0]
     .immext(ImmExtD)
   );
 
-  assign RD1D_mux = FPOpD ? FRD1D : RD1D;
-  assign RD2D_mux = FPOpD ? FRD2D : RD2D;
-
-  // ID/EX con soporte de flush
   idex_reg idex(
     .clk(clk),
     .reset(reset),
     .FlushE(FlushE),
-    .RD1D(RD1D_mux),
-    .RD2D(RD2D_mux),
+    .RD1D(RD1D),
+    .RD2D(RD2D),
     .PCD(PCD),
     .Rs1D(InstrD[19:15]),
     .Rs2D(InstrD[24:20]),
@@ -165,8 +155,7 @@ module datapath_pipeline(
     .ALUSrcD(ALUSrcD),
     .ResultSrcD(ResultSrcD),
     .ALUControlD(ALUControlD),
-    .RegWriteFPD(RegWriteFPD),
-    .FPOpD(FPOpD),
+    .is_lui_D(is_lui_D),
     .RD1E(RD1E),
     .RD2E(RD2E),
     .PCE(PCE),
@@ -182,34 +171,24 @@ module datapath_pipeline(
     .ALUSrcE(ALUSrcE),
     .ResultSrcE(ResultSrcE),
     .ALUControlE(ALUControlE),
-    .RegWriteFPE(RegWriteFPE),
-    .FPOpE(FPOpE)
+    .is_lui_E(is_lui_E)
   );
 
   // ===== EXECUTE =====
-  // Cálculo de PCSrc en EX (no en MEM)
-  // PCSrcE = 1 cuando:
-  //   - Branch tomado: BranchE && ZeroE
-  //   - Jump incondicional: JumpE
   assign PCSrcE = (BranchE && ZeroE) || JumpE;
   
-  // Hazard Unit - Forwarding, Stalling y Flushing Logic
   hazard_unit hu(
-    // Entradas para forwarding
     .Rs1E(Rs1E),
     .Rs2E(Rs2E),
     .RdM(RdM),
     .RegWriteM(RegWriteM),
     .RdW(RdW),
     .RegWriteW(RegWriteW),
-    // Entradas para stalling (load-use)
     .Rs1D(InstrD[19:15]),
     .Rs2D(InstrD[24:20]),
     .RdE(RdE),
     .ResultSrcE(ResultSrcE),
-    // Entradas para flushing (control hazards)
     .PCSrcE(PCSrcE),
-    // Salidas
     .ForwardAE(ForwardAE),
     .ForwardBE(ForwardBE),
     .StallF(StallF),
@@ -218,53 +197,66 @@ module datapath_pipeline(
     .FlushE(FlushE)
   );
 
-  // Mux para Forwarding en SrcA
-  // ForwardAE: 00 = RD1E, 01 = ResultW, 10 = ALUResultM
   mux3 #(WIDTH) forwardAmux(
-    .d0(RD1E),           // Sin forwarding
-    .d1(ResultW),        // Forward desde WB
-    .d2(ALUResultM),     // Forward desde MEM
+    .d0(RD1E),
+    .d1(ResultW),
+    .d2(ALUResultM),
     .s(ForwardAE),
     .y(SrcAE_forwarded)
   );
 
-  // Mux para Forwarding en SrcB (antes del mux de immediate)
-  // ForwardBE: 00 = RD2E, 01 = ResultW, 10 = ALUResultM
   mux3 #(WIDTH) forwardBmux(
-    .d0(RD2E),           // Sin forwarding
-    .d1(ResultW),        // Forward desde WB
-    .d2(ALUResultM),     // Forward desde MEM
+    .d0(RD2E),
+    .d1(ResultW),
+    .d2(ALUResultM),
     .s(ForwardBE),
     .y(SrcBE_forwarded)
   );
 
-  // Asignaciones para ALU
-  assign SrcAE = SrcAE_forwarded;
-  assign WriteDataE = SrcBE_forwarded;  // Para stores, usar valor forwardeado
+  wire [31:0] SrcAE_final;
+  assign SrcAE_final = is_lui_E ? 32'b0 : SrcAE_forwarded;
+  
+  assign SrcAE = SrcAE_final;
+  assign WriteDataE = SrcBE_forwarded;
 
   mux2 #(WIDTH) srcbmux(
-    .d0(SrcBE_forwarded),  // Valor del registro
-    .d1(ImmExtE),          // Immediate
+    .d0(SrcBE_forwarded),
+    .d1(ImmExtE),
     .s(ALUSrcE),
     .y(SrcBE)
   );
 
   alu alu(
-    .a(SrcAE),
+    .a(SrcAE_final),
     .b(SrcBE),
     .alucontrol(ALUControlE),
-    .fp_op(FPOpE),
-    .result(ALUResultE),
+    .result(ALUResultE_int),
     .zero(ZeroE)
   );
 
+  aluf aluf(
+    .op_a(SrcAE),
+    .op_b(SrcBE),
+    .op_code(ALUControlE[1:0]),
+    .mode_fp(1'b1),
+    .round_mode(2'b00),
+    .result(FP_result),
+    .flags(FP_flags)
+  );
+  
+  mux2 #(WIDTH) alu_select_mux(
+    .d0(ALUResultE_int),
+    .d1(FP_result),
+    .s(is_fp_op),
+    .y(ALUResultE)
+  );
+  
   adder pcaddbranch(
     .a(PCE),
     .b(ImmExtE),
     .y(PCTargetE)
   );
 
-  // EX/MEM
   exmem_reg exmem(
     .clk(clk),
     .reset(reset),
@@ -279,8 +271,6 @@ module datapath_pipeline(
     .BranchE(BranchE),
     .ZeroE(ZeroE),
     .ResultSrcE(ResultSrcE),
-    .RegWriteFPE(RegWriteFPE),
-    .FPOpE(FPOpE),
     .ALUResultM(ALUResultM),
     .WriteDataM(WriteDataM),
     .PCPlus4M(PCPlus4M),
@@ -291,16 +281,9 @@ module datapath_pipeline(
     .JumpM(JumpM),
     .BranchM(BranchM),
     .ZeroM(ZeroM),
-    .ResultSrcM(ResultSrcM),
-    .RegWriteFPM(RegWriteFPM),
-    .FPOpM(FPOpM)
+    .ResultSrcM(ResultSrcM)
   );
 
-  // ===== MEMORY =====
-  // Acceso a memoria se realiza en el módulo superior
-  // Nota: PCSrc ahora se calcula en EX, no en MEM
-
-  // MEM/WB
   memwb_reg memwb(
     .clk(clk),
     .reset(reset),
@@ -310,19 +293,14 @@ module datapath_pipeline(
     .RdM(RdM),
     .RegWriteM(RegWriteM),
     .ResultSrcM(ResultSrcM),
-    .RegWriteFPM(RegWriteFPM),
-    .FPOpM(FPOpM),
     .ALUResultW(ALUResultW),
     .ReadDataW(ReadDataW),
     .PCPlus4W(PCPlus4W),
     .RdW(RdW),
     .RegWriteW(RegWriteW),
-    .ResultSrcW(ResultSrcW),
-    .RegWriteFPW(RegWriteFPW),
-    .FPOpW(FPOpW)
+    .ResultSrcW(ResultSrcW)
   );
 
-  // ===== WRITEBACK =====
   mux3 #(WIDTH) resultmux(
     .d0(ALUResultW),
     .d1(ReadDataW),
