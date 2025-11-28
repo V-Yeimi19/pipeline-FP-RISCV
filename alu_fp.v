@@ -1,56 +1,74 @@
-module alu(
-    input [31:0] a, b,
-    input [2:0] alucontrol,
-    input fp_op,
-    output [31:0] result,
-    output zero
+// ALU de Punto Flotante para pipeline RISC-V
+// Soporta operaciones básicas: ADD, SUB, MUL, DIV en formato IEEE 754 single precision
+
+module alu_fp(
+  input  [31:0] a,           // Operando A (FP32)
+  input  [31:0] b,           // Operando B (FP32)
+  input  [2:0]  alucontrol,  // Control de operación
+  output [31:0] result       // Resultado (FP32)
 );
-    wire [31:0] int_result, fp_result;
-    wire [31:0] fp_add_result, fp_sub_result, fp_mul_result, fp_div_result;
 
-    wire [31:0] condinvb = alucontrol[0] ? ~b : b;
-    wire [31:0] sum = a + condinvb + alucontrol[0];
-    wire v = ~(alucontrol[0] ^ a[31] ^ b[31]) & (a[31] ^ sum[31]);
+  // Decodificación del control:
+  // 3'b000: FADD  (suma FP)
+  // 3'b001: FSUB  (resta FP)
+  // 3'b010: FMUL  (multiplicación FP)
+  // 3'b011: FDIV  (división FP)
 
-    reg [31:0] int_result_reg;
-    always @(*) case (alucontrol)
-        3'b000: int_result_reg = sum;
-        3'b001: int_result_reg = sum;
-        3'b010: int_result_reg = a & b;
-        3'b011: int_result_reg = a | b;
-        3'b100: int_result_reg = a ^ b;
-        3'b101: int_result_reg = sum[31] ^ v;
-        3'b110: int_result_reg = a << b[4:0];
-        3'b111: int_result_reg = a >> b[4:0];
-        default: int_result_reg = 32'bx;
+  wire [31:0] fp_add_result, fp_sub_result, fp_mul_result, fp_div_result;
+
+  // Instanciar módulos de operaciones FP
+  fp_add_sub fp_add_inst(
+    .a(a),
+    .b(b),
+    .add_sub(1'b0),
+    .result(fp_add_result)
+  );
+
+  fp_add_sub fp_sub_inst(
+    .a(a),
+    .b(b),
+    .add_sub(1'b1),
+    .result(fp_sub_result)
+  );
+
+  fp_mul fp_mul_inst(
+    .a(a),
+    .b(b),
+    .result(fp_mul_result)
+  );
+
+  fp_div fp_div_inst(
+    .a(a),
+    .b(b),
+    .result(fp_div_result)
+  );
+
+  // Multiplexor para seleccionar resultado
+  reg [31:0] result_reg;
+
+  always @(*) begin
+    case (alucontrol)
+      3'b000:  result_reg = fp_add_result;  // FADD
+      3'b001:  result_reg = fp_sub_result;  // FSUB
+      3'b010:  result_reg = fp_mul_result;  // FMUL
+      3'b011:  result_reg = fp_div_result;  // FDIV
+      default: result_reg = fp_add_result;  // Default: FADD
     endcase
-    assign int_result = int_result_reg;
+  end
 
-    fp_add_sub fp_add_inst(.a(a), .b(b), .add_sub(1'b0), .result(fp_add_result));
-    fp_add_sub fp_sub_inst(.a(a), .b(b), .add_sub(1'b1), .result(fp_sub_result));
-    fp_mul fp_mul_inst(.a(a), .b(b), .result(fp_mul_result));
-    fp_div fp_div_inst(.a(a), .b(b), .result(fp_div_result));
+  assign result = result_reg;
 
-    reg [31:0] fp_result_reg;
-    always @(*) case (alucontrol[1:0])
-        2'b00: fp_result_reg = fp_add_result;
-        2'b01: fp_result_reg = fp_sub_result;
-        2'b10: fp_result_reg = fp_mul_result;
-        2'b11: fp_result_reg = fp_div_result;
-    endcase
-    assign fp_result = fp_result_reg;
-
-    assign result = fp_op ? fp_result : int_result;
-    assign zero = (result == 0);
 endmodule
 
+
+// Módulo de suma/resta FP
 module fp_add_sub(
     input [31:0] a, b,
-    input add_sub,
+    input add_sub,  // 0=suma, 1=resta
     output reg [31:0] result
 );
     wire sign_a = a[31];
-    wire sign_b_eff = b[31] ^ add_sub;
+    wire sign_b_eff = b[31] ^ add_sub;  // Invierte signo de B si es resta
     wire [7:0] exp_a = a[30:23];
     wire [7:0] exp_b = b[30:23];
     wire [22:0] mant_a = a[22:0];
@@ -79,6 +97,7 @@ module fp_add_sub(
             mant_a_norm = {1'b1, mant_a};
             mant_b_norm = {1'b1, mant_b};
 
+            // Alinear exponentes
             if (exp_a > exp_b) begin
                 exp_larger = exp_a;
                 exp_diff = exp_a - exp_b;
@@ -91,6 +110,7 @@ module fp_add_sub(
                 mant_b_aligned = {mant_b_norm, 24'b0};
             end
 
+            // Sumar o restar según signos
             if (sign_a == sign_b_eff) begin
                 mant_sum = {1'b0, mant_a_aligned} + {1'b0, mant_b_aligned};
                 sign_result = sign_a;
@@ -106,6 +126,7 @@ module fp_add_sub(
 
             exp_result = exp_larger;
 
+            // Normalizar resultado
             if (mant_sum[48]) begin
                 mant_result = mant_sum[47:25];
                 exp_result = exp_result + 1;
@@ -116,6 +137,7 @@ module fp_add_sub(
             end else if (mant_sum == 0) begin
                 result = {sign_result, 31'b0};
             end else begin
+                // Normalizar hacia la izquierda
                 shift_cnt = 0;
                 for (i = 47; i >= 1; i = i - 1) begin
                     if (mant_sum[i] == 0)
@@ -137,6 +159,8 @@ module fp_add_sub(
     end
 endmodule
 
+
+// Módulo de multiplicación FP
 module fp_mul(
     input [31:0] a, b,
     output reg [31:0] result
@@ -169,6 +193,7 @@ module fp_mul(
             mant_product = mant_a_norm * mant_b_norm;
             exp_sum = {2'b0, exp_a} + {2'b0, exp_b} - 10'd127;
 
+            // Normalizar
             if (mant_product[47]) begin
                 exp_result = exp_sum[8:0] + 1;
                 mant_result = mant_product[46:24];
@@ -177,10 +202,11 @@ module fp_mul(
                 mant_result = mant_product[45:23];
             end
 
+            // Detectar overflow/underflow
             if (exp_result >= 9'd255) begin
-                result = {sign_result, 8'hFF, 23'b0};
+                result = {sign_result, 8'hFF, 23'b0};  // Infinito
             end else if (exp_result == 0) begin
-                result = {sign_result, 31'b0};
+                result = {sign_result, 31'b0};  // Cero
             end else begin
                 result = {sign_result, exp_result[7:0], mant_result};
             end
@@ -188,6 +214,8 @@ module fp_mul(
     end
 endmodule
 
+
+// Módulo de división FP
 module fp_div(
     input [31:0] a, b,
     output reg [31:0] result
@@ -213,15 +241,16 @@ module fp_div(
         sign_result = sign_a ^ sign_b;
 
         if (b_is_zero) begin
-            result = {sign_result, 8'hFF, 23'b0};
+            result = {sign_result, 8'hFF, 23'b0};  // División por cero = Infinito
         end else if (a_is_zero) begin
-            result = {sign_result, 31'b0};
+            result = {sign_result, 31'b0};  // 0 / x = 0
         end else begin
             mant_a_norm = {1'b1, mant_a};
             mant_b_norm = {1'b1, mant_b};
             mant_quotient = ({mant_a_norm, 23'b0}) / mant_b_norm;
             exp_result_temp = $signed({2'b0, exp_a}) - $signed({2'b0, exp_b}) + $signed(10'd127);
 
+            // Normalizar
             if (mant_quotient[23]) begin
                 exp_result = exp_result_temp[8:0];
                 mant_result = mant_quotient[22:0];
@@ -231,10 +260,11 @@ module fp_div(
                 mant_result = mant_quotient[22:0];
             end
 
+            // Detectar overflow/underflow
             if (exp_result >= 9'd255 || exp_result_temp >= 10'd255) begin
-                result = {sign_result, 8'hFF, 23'b0};
+                result = {sign_result, 8'hFF, 23'b0};  // Infinito
             end else if (exp_result_temp <= 0) begin
-                result = {sign_result, 31'b0};
+                result = {sign_result, 31'b0};  // Cero
             end else begin
                 result = {sign_result, exp_result[7:0], mant_result};
             end

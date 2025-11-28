@@ -249,14 +249,26 @@ module datapath_pipeline(
     .y(SrcBE)
   );
 
-  alu alu(
+  wire [31:0] ALUResultInt, ALUResultFP;
+  wire ZeroInt;
+
+  alu_int alu_integer(
     .a(SrcAE),
     .b(SrcBE),
     .alucontrol(ALUControlE),
-    .fp_op(FPOpE),
-    .result(ALUResultE),
-    .zero(ZeroE)
+    .result(ALUResultInt),
+    .zero(ZeroInt)
   );
+
+  alu_fp alu_floating(
+    .a(SrcAE),
+    .b(SrcBE),
+    .alucontrol(ALUControlE),
+    .result(ALUResultFP)
+  );
+
+  assign ALUResultE = FPOpE ? ALUResultFP : ALUResultInt;
+  assign ZeroE = ZeroInt;
 
   adder pcaddbranch(
     .a(PCE),
