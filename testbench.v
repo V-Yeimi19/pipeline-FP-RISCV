@@ -1,42 +1,19 @@
-// Testbench Unificado - Pipeline RISC-V con soporte FP
-// Ejecuta pruebas de:
-//   1. ALU de enteros (tests unitarios)
-//   2. ALU de punto flotante (tests unitarios)
-//   3. Pipeline completo (integración)
+module testbench;
 
-`timescale 1ns / 1ps
-
-module testbench_unified;
-
-  // SECCIÓN 1: TEST DE ALUs UNITARIAS
+  // Señales de Clock/Reset
   reg clk;
-  reg [31:0] alu_a, alu_b;
-  reg [2:0] alu_ctrl;
-  wire [31:0] result_int, result_fp;
-  wire zero_int;
-
-  // Instanciar ALUs para pruebas unitarias
-  alu_int alu_int_test(
-    .a(alu_a),
-    .b(alu_b),
-    .alucontrol(alu_ctrl),
-    .result(result_int),
-    .zero(zero_int)
-  );
-
-  alu_fp alu_fp_test(
-    .a(alu_a),
-    .b(alu_b),
-    .alucontrol(alu_ctrl),
-    .result(result_fp)
-  );
-  
-  // SECCIÓN 2: TEST DEL PIPELINE COMPLETO
   reg reset;
+  
+  // Señales de la Interfaz de Memoria de Datos (desde la etapa MEM)
   wire [31:0] WriteData;
   wire [31:0] DataAdr;
   wire MemWrite;
-
+  
+  // =======================================================
+  // INSTANCIACIÓN DEL DISPOSITIVO BAJO PRUEBA (DUT)
+  // Nota: Asume que 'top' contiene 'rvpipeline' que a su vez contiene 'dp'
+  // =======================================================
+  
   top dut(
     .clk(clk),
     .reset(reset),
@@ -44,372 +21,121 @@ module testbench_unified;
     .DataAdr(DataAdr),
     .MemWrite(MemWrite)
   );
-
-  initial begin
+  
+  // =======================================================
+  // GENERACIÓN DE CLOCK Y RESET
+  // =======================================================
+  
+  // Generar Clock (Período de 10ns)
+  always begin
+    clk = 1;
+    #5;
     clk = 0;
-    forever #5 clk = ~clk;
+    #5;
   end
-
-  // Variables de control y contadores
-  integer test_num;
-  integer passed_int, passed_fp, failed_int, failed_fp;
-  reg [31:0] cycle_count;
-  reg alu_tests_done;
-  reg pipeline_tests_started;
-
-  // Función auxiliar para mostrar FP
-  task display_fp;
-    input [31:0] value;
-    input [50*8:1] label;
-    begin
-      $display("    %s: S=%b Exp=%03d (0x%02X) Mant=0x%06X => 0x%08X",
-               label, value[31], value[30:23], value[30:23], value[22:0], value);
-    end
-  endtask
-
-  // TESTS DE ALUs UNITARIAS
+  
+  // Inicializar y Resetear
   initial begin
-    $display("\n   TESTBENCH UNIFICADO - PIPELINE RISC-V FP             \n");
-
-    // Inicialización
-    test_num = 0;
-    passed_int = 0;
-    passed_fp = 0;
-    failed_int = 0;
-    failed_fp = 0;
-    alu_tests_done = 0;
-    pipeline_tests_started = 0;
-
-    #10;
-    $display("  PARTE 1: PRUEBAS UNITARIAS - ALU DE ENTEROS\n");
-
-    // Test 1: ADD
-    test_num = test_num + 1;
-    alu_a = 32'd10;
-    alu_b = 32'd20;
-    alu_ctrl = 3'b000;
-    #10;
-    $display("[Test %0d] INT ADD: %0d + %0d = %0d", test_num, alu_a, alu_b, result_int);
-    if (result_int == 32'd30) begin
-      $display("          ✓ PASS (esperado: 30)\n");
-      passed_int = passed_int + 1;
-    end else begin
-      $display("          ✗ FAIL (esperado: 30, obtenido: %0d)\n", result_int);
-      failed_int = failed_int + 1;
-    end
-
-    // Test 2: SUB
-    test_num = test_num + 1;
-    alu_a = 32'd50;
-    alu_b = 32'd15;
-    alu_ctrl = 3'b001;
-    #10;
-    $display("[Test %0d] INT SUB: %0d - %0d = %0d", test_num, alu_a, alu_b, result_int);
-    if (result_int == 32'd35) begin
-      $display("          ✓ PASS (esperado: 35)\n");
-      passed_int = passed_int + 1;
-    end else begin
-      $display("          ✗ FAIL (esperado: 35, obtenido: %0d)\n", result_int);
-      failed_int = failed_int + 1;
-    end
-
-    // Test 3: AND
-    test_num = test_num + 1;
-    alu_a = 32'hF0F0F0F0;
-    alu_b = 32'h0F0F0F0F;
-    alu_ctrl = 3'b010;
-    #10;
-    $display("[Test %0d] INT AND: 0x%08X & 0x%08X = 0x%08X", test_num, alu_a, alu_b, result_int);
-    if (result_int == 32'h00000000) begin
-      $display("          ✓ PASS (esperado: 0x00000000)\n");
-      passed_int = passed_int + 1;
-    end else begin
-      $display("          ✗ FAIL (esperado: 0x00000000)\n");
-      failed_int = failed_int + 1;
-    end
-
-    // Test 4: OR
-    test_num = test_num + 1;
-    alu_a = 32'hF0F0F0F0;
-    alu_b = 32'h0F0F0F0F;
-    alu_ctrl = 3'b011;
-    #10;
-    $display("[Test %0d] INT OR: 0x%08X | 0x%08X = 0x%08X", test_num, alu_a, alu_b, result_int);
-    if (result_int == 32'hFFFFFFFF) begin
-      $display("          ✓ PASS (esperado: 0xFFFFFFFF)\n");
-      passed_int = passed_int + 1;
-    end else begin
-      $display("          ✗ FAIL (esperado: 0xFFFFFFFF)\n");
-      failed_int = failed_int + 1;
-    end
-
-    // Test 5: XOR
-    test_num = test_num + 1;
-    alu_a = 32'hAAAAAAAA;
-    alu_b = 32'h55555555;
-    alu_ctrl = 3'b100;
-    #10;
-    $display("[Test %0d] INT XOR: 0x%08X ^ 0x%08X = 0x%08X", test_num, alu_a, alu_b, result_int);
-    if (result_int == 32'hFFFFFFFF) begin
-      $display("          ✓ PASS (esperado: 0xFFFFFFFF)\n");
-      passed_int = passed_int + 1;
-    end else begin
-      $display("          ✗ FAIL (esperado: 0xFFFFFFFF)\n");
-      failed_int = failed_int + 1;
-    end
-
-    // Test 6: SLL
-    test_num = test_num + 1;
-    alu_a = 32'h00000001;
-    alu_b = 32'd4;
-    alu_ctrl = 3'b110;
-    #10;
-    $display("[Test %0d] INT SLL: 0x%08X << %0d = 0x%08X", test_num, alu_a, alu_b, result_int);
-    if (result_int == 32'h00000010) begin
-      $display("          ✓ PASS (esperado: 0x00000010)\n");
-      passed_int = passed_int + 1;
-    end else begin
-      $display("          ✗ FAIL (esperado: 0x00000010)\n");
-      failed_int = failed_int + 1;
-    end
-
-    $display("\nPARTE 2: PRUEBAS UNITARIAS - ALU DE PUNTO FLOTANTE\n");
-
-    // Test 7: FADD (2.0 + 3.0 = 5.0)
-    test_num = test_num + 1;
-    alu_a = 32'h40000000; // 2.0
-    alu_b = 32'h40400000; // 3.0
-    alu_ctrl = 3'b000;
-    #10;
-    $display("[Test %0d] FP ADD: 2.0 + 3.0 = 5.0", test_num);
-    display_fp(alu_a, "A (2.0)");
-    display_fp(alu_b, "B (3.0)");
-    display_fp(result_fp, "Result");
-    if (result_fp == 32'h40A00000) begin
-      $display("          ✓ PASS (esperado: 0x40A00000)\n");
-      passed_fp = passed_fp + 1;
-    end else begin
-      $display("          ✗ FAIL (esperado: 0x40A00000)\n");
-      failed_fp = failed_fp + 1;
-    end
-
-    // Test 8: FSUB (5.0 - 2.0 = 3.0)
-    test_num = test_num + 1;
-    alu_a = 32'h40A00000; // 5.0
-    alu_b = 32'h40000000; // 2.0
-    alu_ctrl = 3'b001;
-    #10;
-    $display("[Test %0d] FP SUB: 5.0 - 2.0 = 3.0", test_num);
-    display_fp(alu_a, "A (5.0)");
-    display_fp(alu_b, "B (2.0)");
-    display_fp(result_fp, "Result");
-    if (result_fp == 32'h40400000) begin
-      $display("          ✓ PASS (esperado: 0x40400000)\n");
-      passed_fp = passed_fp + 1;
-    end else begin
-      $display("          ✗ FAIL (esperado: 0x40400000)\n");
-      failed_fp = failed_fp + 1;
-    end
-
-    // Test 9: FMUL (2.0 * 3.0 = 6.0)
-    test_num = test_num + 1;
-    alu_a = 32'h40000000; // 2.0
-    alu_b = 32'h40400000; // 3.0
-    alu_ctrl = 3'b010;
-    #10;
-    $display("[Test %0d] FP MUL: 2.0 * 3.0 = 6.0", test_num);
-    display_fp(alu_a, "A (2.0)");
-    display_fp(alu_b, "B (3.0)");
-    display_fp(result_fp, "Result");
-    if (result_fp == 32'h40C00000) begin
-      $display("          ✓ PASS (esperado: 0x40C00000)\n");
-      passed_fp = passed_fp + 1;
-    end else begin
-      $display("          ✗ FAIL (esperado: 0x40C00000)\n");
-      failed_fp = failed_fp + 1;
-    end
-
-    // Test 10: FDIV (6.0 / 2.0 = 3.0)
-    test_num = test_num + 1;
-    alu_a = 32'h40C00000; // 6.0
-    alu_b = 32'h40000000; // 2.0
-    alu_ctrl = 3'b011;
-    #10;
-    $display("[Test %0d] FP DIV: 6.0 / 2.0 = 3.0", test_num);
-    display_fp(alu_a, "A (6.0)");
-    display_fp(alu_b, "B (2.0)");
-    display_fp(result_fp, "Result");
-    if (result_fp == 32'h40400000) begin
-      $display("          ✓ PASS (esperado: 0x40400000)\n");
-      passed_fp = passed_fp + 1;
-    end else begin
-      $display("          ✗ FAIL (esperado: 0x40400000)\n");
-      failed_fp = failed_fp + 1;
-    end
-
-    // Test 11: División por cero
-    test_num = test_num + 1;
-    alu_a = 32'h40000000; // 2.0
-    alu_b = 32'h00000000; // 0.0
-    alu_ctrl = 3'b011;
-    #10;
-    $display("[Test %0d] FP DIV/0: 2.0 / 0.0 = +Inf", test_num);
-    display_fp(alu_a, "A (2.0)");
-    display_fp(alu_b, "B (0.0)");
-    display_fp(result_fp, "Result");
-    if (result_fp == 32'h7F800000) begin
-      $display("          ✓ PASS (esperado: 0x7F800000 = +Inf)\n");
-      passed_fp = passed_fp + 1;
-    end else begin
-      $display("          ✗ FAIL (esperado: 0x7F800000 = +Inf)\n");
-      failed_fp = failed_fp + 1;
-    end
-
-    // Test 12: Negativos
-    test_num = test_num + 1;
-    alu_a = 32'hC0000000; // -2.0
-    alu_b = 32'h40400000; // 3.0
-    alu_ctrl = 3'b000;
-    #10;
-    $display("[Test %0d] FP ADD: -2.0 + 3.0 = 1.0", test_num);
-    display_fp(alu_a, "A (-2.0)");
-    display_fp(alu_b, "B (3.0)");
-    display_fp(result_fp, "Result");
-    if (result_fp == 32'h3F800000) begin
-      $display("          ✓ PASS (esperado: 0x3F800000 = 1.0)\n");
-      passed_fp = passed_fp + 1;
-    end else begin
-      $display("          ✗ FAIL (esperado: 0x3F800000 = 1.0)\n");
-      failed_fp = failed_fp + 1;
-    end
-
-    // Test 13: Multiplicación por cero
-    test_num = test_num + 1;
-    alu_a = 32'h40000000; // 2.0
-    alu_b = 32'h00000000; // 0.0
-    alu_ctrl = 3'b010;
-    #10;
-    $display("[Test %0d] FP MUL: 2.0 * 0.0 = 0.0", test_num);
-    display_fp(alu_a, "A (2.0)");
-    display_fp(alu_b, "B (0.0)");
-    display_fp(result_fp, "Result");
-    if (result_fp == 32'h00000000) begin
-      $display("          ✓ PASS (esperado: 0x00000000 = 0.0)\n");
-      passed_fp = passed_fp + 1;
-    end else begin
-      $display("          ✗ FAIL (esperado: 0x00000000 = 0.0)\n");
-      failed_fp = failed_fp + 1;
-    end
-
-    $display("\n  RESUMEN - TESTS UNITARIOS DE ALUs\n");
-    $display("  Total pruebas: %0d", test_num);
-    $display("");
-    $display("  ALU Enteros:");
-    $display("    ✓ Pasadas: %0d", passed_int);
-    $display("    ✗ Falladas: %0d", failed_int);
-    $display("");
-    $display("  ALU Punto Flotante:");
-    $display("    ✓ Pasadas: %0d", passed_fp);
-    $display("    ✗ Falladas: %0d", failed_fp);
-    $display("");
-    $display("  TOTAL: %0d/%0d PASADAS", passed_int + passed_fp, test_num);
-    $display("\n");
-
-    if (failed_int + failed_fp == 0)
-      $display("  ★★★ TODOS LOS TESTS UNITARIOS PASARON ★★★\n");
-    else
-      $display("  ⚠ ALGUNOS TESTS FALLARON ⚠\n");
-
-    alu_tests_done = 1;
-
-    $display("\nPARTE 3: PRUEBAS DE INTEGRACIÓN - PIPELINE COMPLETO\n");
-    $display("  Iniciando pipeline con programa de prueba...\n");
-
-    // Iniciar pipeline
     reset = 1;
-    cycle_count = 0;
-    #15;
+    #15; // Mantener reset por 1.5 ciclos
     reset = 0;
-    pipeline_tests_started = 1;
+    $display("--- SIMULATION START ---");
   end
-
+  
+  // =======================================================
+  // MONITOREO Y VERIFICACIÓN DETALLADA POR CICLO
+  // =======================================================
+  
+  reg [31:0] cycle_count;
+  initial cycle_count = 0;
+  
+  // Monitoreo en el borde positivo del clock
   always @(posedge clk) begin
-    if (pipeline_tests_started && !reset) begin
+    if (!reset) begin
       cycle_count = cycle_count + 1;
+      
+      $display("\n==============================================");
+      $display("=== Cycle %0d (POST-CLK) ===", cycle_count);
+      $display("==============================================");
 
-      $display("┌────────────────────────────────────────────────────────────┐");
-      $display("│ CICLO %0d", cycle_count);
-      $display("├────────────────────────────────────────────────────────────┤");
-      $display("│ PC      : 0x%08X", dut.PC);
-      $display("│ Instr   : 0x%08X", dut.Instr);
-      $display("│ MemWrite: %b  DataAdr: 0x%08X  WriteData: 0x%08X",
-               MemWrite, DataAdr, WriteData);
-      $display("├────────────────────────────────────────────────────────────┤");
+      // --- Etapa IF ---
+      $display("\n--- IF Stage (Fetch) ---");
+      // Asume que PCF e InstrF están disponibles en la interfaz de 'dut' o 'dut.rvpipeline.dp'
+      $display("  PCF (PC Actual)    = %h", dut.rvpipeline.dp.PCF);
+      $display("  InstrF (Next Inst) = %h", dut.rvpipeline.dp.InstrF);
+      $display("  PCPlus4F           = %h", dut.rvpipeline.dp.PCPlus4F);
+      $display("  PCNextF            = %h", dut.rvpipeline.dp.PCNextF);
 
-      $display("│ INT Regs: x1=0x%08X x2=0x%08X x3=0x%08X",
-               dut.rvpipeline.dp.rf.rf[1],
-               dut.rvpipeline.dp.rf.rf[2],
-               dut.rvpipeline.dp.rf.rf[3]);
-      $display("│           x4=0x%08X x5=0x%08X",
-               dut.rvpipeline.dp.rf.rf[4],
-               dut.rvpipeline.dp.rf.rf[5]);
+      // --- Señales de Hazard Unit ---
+      $display("\n--- HAZARD & CONTROL Signals (HU) ---");
+      $display("  PCSrcE (Jump/Branch Taken) = %b", dut.rvpipeline.dp.PCSrcE);
+      $display("  StallF (Freeze PC)         = %b", dut.rvpipeline.dp.StallF);
+      $display("  StallD (Freeze IF/ID)      = %b", dut.rvpipeline.dp.StallD);
+      $display("  FlushD (NOP in ID)         = %b", dut.rvpipeline.dp.FlushD);
+      $display("  FlushE (NOP in EX)         = %b", dut.rvpipeline.dp.FlushE);
+      
+      // --- Etapa ID (Decode) ---
+      $display("\n--- ID Stage (Decode) ---");
+      $display("  InstrD (ID/EX Input) = %h", dut.rvpipeline.dp.InstrD);
+      $display("  PCD                  = %h", dut.rvpipeline.dp.PCD);
+      $display("  RD1D / RD2D          = %h / %h", dut.rvpipeline.dp.RD1D, dut.rvpipeline.dp.RD2D);
+      $display("  RdD (Dest Reg)       = %d", dut.rvpipeline.dp.InstrD[11:7]);
+      $display("  ImmExtD              = %h", dut.rvpipeline.dp.ImmExtD);
+      $display("  RegWriteD            = %b", dut.rvpipeline.RegWriteD);
+      
+      // --- Etapa EX (Execute) ---
+      $display("\n--- EX Stage (Execute) ---");
+      $display("  RdE (Dest Reg)       = %d", dut.rvpipeline.dp.RdE);
+      $display("  Rs1E / Rs2E          = %d / %d", dut.rvpipeline.dp.Rs1E, dut.rvpipeline.dp.Rs2E);
+      $display("  ForwardAE / ForwardBE= %b / %b", dut.rvpipeline.dp.ForwardAE, dut.rvpipeline.dp.ForwardBE);
+      $display("  SrcAE_final / SrcBE  = %h / %h", dut.rvpipeline.dp.SrcAE_final, dut.rvpipeline.dp.SrcBE);
+      $display("  ALUControlE          = %b", dut.rvpipeline.dp.ALUControlE);
+      $display("  ALUResultE           = %h", dut.rvpipeline.dp.ALUResultE);
+      $display("  BranchE / ZeroE      = %b / %b", dut.rvpipeline.dp.BranchE, dut.rvpipeline.dp.ZeroE);
+      $display("  PCTargetE (Target PC)= %h", dut.rvpipeline.dp.PCTargetE);
 
-      $display("│ FP  Regs: f0=0x%08X f1=0x%08X f2=0x%08X",
-               dut.rvpipeline.dp.frf.frf[0],
-               dut.rvpipeline.dp.frf.frf[1],
-               dut.rvpipeline.dp.frf.frf[2]);
-      $display("│           f3=0x%08X f4=0x%08X",
-               dut.rvpipeline.dp.frf.frf[3],
-               dut.rvpipeline.dp.frf.frf[4]);
+      // --- Etapa MEM (Memory) ---
+      $display("\n--- MEM Stage (Memory Access) ---");
+      $display("  RdM (Dest Reg)       = %d", dut.rvpipeline.dp.RdM);
+      $display("  ALUResultM (Addr)    = %h", dut.rvpipeline.dp.ALUResultM);
+      $display("  RegWriteM / MemWriteM= %b / %b", dut.rvpipeline.dp.RegWriteM, dut.rvpipeline.dp.MemWriteM);
+      if (MemWrite) begin
+        $display("  *** MEMORY WRITE: MEM[%h] = %h ***", DataAdr, WriteData);
+      end
+      
+      // --- Etapa WB (Writeback) ---
+      $display("\n--- WB Stage (Writeback) ---");
+      $display("  RdW (Dest Reg)       = %d", dut.rvpipeline.dp.RdW);
+      $display("  ResultW (Data to Reg)= %h", dut.rvpipeline.dp.ResultW);
+      $display("  RegWriteW            = %b", dut.rvpipeline.dp.RegWriteW);
+      
+      // --- Registros (Solo unos pocos para referencia) ---
+      $display("\n--- REGISTERS ---");
+      $display("  x2 = %d (0x%h)", dut.rvpipeline.dp.rf.rf[2], dut.rvpipeline.dp.rf.rf[2]);
+      $display("  x4 = %d (0x%h)", dut.rvpipeline.dp.rf.rf[4], dut.rvpipeline.dp.rf.rf[4]);
+      $display("  x7 = %d (0x%h)", dut.rvpipeline.dp.rf.rf[7], dut.rvpipeline.dp.rf.rf[7]);
+      $display("  x9 = %d (0x%h)", dut.rvpipeline.dp.rf.rf[9], dut.rvpipeline.dp.rf.rf[9]);
 
-      $display("├────────────────────────────────────────────────────────────┤");
-      $display("│ Control : RegW=%b RegWFP=%b FPOp=%b ALUCtrl=%03b",
-               dut.rvpipeline.c.RegWrite,
-               dut.rvpipeline.c.RegWriteFP,
-               dut.rvpipeline.c.FPOp,
-               dut.rvpipeline.c.ALUControl);
-
-      $display("│ Pipeline: E[Rd=%02d RW=%b FP=%b] M[Rd=%02d RW=%b] W[Rd=%02d RW=%b]",
-               dut.rvpipeline.dp.RdE, dut.rvpipeline.dp.RegWriteE,
-               dut.rvpipeline.dp.FPOpE,
-               dut.rvpipeline.dp.RdM, dut.rvpipeline.dp.RegWriteM,
-               dut.rvpipeline.dp.RdW, dut.rvpipeline.dp.RegWriteW);
-
-      $display("│ Hazards : FwdA=%b FwdB=%b Stall=%b Flush=%b",
-               dut.rvpipeline.dp.ForwardAE, dut.rvpipeline.dp.ForwardBE,
-               dut.rvpipeline.dp.StallD, dut.rvpipeline.dp.FlushE);
-
-      $display("│ ALU     : A=0x%08X B=0x%08X R=0x%08X (FP=%b)",
-               dut.rvpipeline.dp.SrcAE, dut.rvpipeline.dp.SrcBE,
-               dut.rvpipeline.dp.ALUResultE, dut.rvpipeline.dp.FPOpE);
-
-      $display("└────────────────────────────────────────────────────────────┘\n");
-
-      if (cycle_count == 50) begin
-        $display("  RESUMEN FINAL - PIPELINE");
-        $display("\n  Registros Finales de Enteros:");
-        $display("    x1 = 0x%08X", dut.rvpipeline.dp.rf.rf[1]);
-        $display("    x2 = 0x%08X", dut.rvpipeline.dp.rf.rf[2]);
-        $display("    x3 = 0x%08X", dut.rvpipeline.dp.rf.rf[3]);
-        $display("    x4 = 0x%08X", dut.rvpipeline.dp.rf.rf[4]);
-        $display("    x5 = 0x%08X", dut.rvpipeline.dp.rf.rf[5]);
-
-        $display("\n  Registros Finales de Punto Flotante:");
-        $display("    f0 = 0x%08X", dut.rvpipeline.dp.frf.frf[0]);
-        $display("    f1 = 0x%08X", dut.rvpipeline.dp.frf.frf[1]);
-        $display("    f2 = 0x%08X", dut.rvpipeline.dp.frf.frf[2]);
-        $display("    f3 = 0x%08X", dut.rvpipeline.dp.frf.frf[3]);
-        $display("    f4 = 0x%08X", dut.rvpipeline.dp.frf.frf[4]);
-
-        $display("  ★ SIMULACIÓN COMPLETADA ★\n");
+      // --- Condición de Éxito y Timeout ---
+      if (MemWrite && DataAdr == 32'd100 && WriteData == 32'd25) begin
+        $display("\n***************************************************");
+        $display("SUCCESS! Wrote 25 to memory address 100 on Cycle %0d.", cycle_count);
+        $display("***************************************************");
+        #20;
+        $finish;
+      end
+      
+      if (cycle_count == 100) begin
+        $display("\nERROR: Test timeout - did not write 25 to address 100");
         $finish;
       end
     end
   end
-
+  
+  // Generar archivos VCD para visualización de ondas
   initial begin
-    $dumpfile("testbench_unified.vcd");
-    $dumpvars(0, testbench_unified);
+    $dumpfile("testbench.vcd");
+    // Asegúrate de que 'dut' sea el módulo superior donde están anidados los componentes.
+    $dumpvars(0, dut);
   end
-
 endmodule

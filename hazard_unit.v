@@ -27,28 +27,35 @@ module hazard_unit(
   output FlushE    // Flush Execute stage (data hazards y control hazards)
 );
 
-  // ===== FORWARDING LOGIC =====
+  // ===== FORWARDING LOGIC (Lógica Modificada) =====
+
+  // Condición de Forwarding desde EX/MEM (Máxima Prioridad: 10)
+  // Data está en el registro EX/MEM y está a punto de entrar a MEM
+  wire FwdExMemA = (Rs1E == RdM) && RegWriteM && (Rs1E != 5'b0);
+  wire FwdExMemB = (Rs2E == RdM) && RegWriteM && (Rs2E != 5'b0);
+
+  // Condición de Forwarding desde MEM/WB (Prioridad Media: 01)
+  // Data está en el registro MEM/WB y está a punto de entrar a WB.
+  // IMPORTANTE: SOLO se activa si la condición EX/MEM NO se cumple.
+  wire FwdMemWbA = (Rs1E == RdW) && RegWriteW && (Rs1E != 5'b0) && !FwdExMemA;
+  wire FwdMemWbB = (Rs2E == RdW) && RegWriteW && (Rs2E != 5'b0) && !FwdExMemB;
+
+
   // Forwarding para SrcA (Rs1E)
-  // Prioridad: EX/MEM > MEM/WB > Normal
-  assign ForwardAE = 
-    // Forwarding desde EX/MEM (más reciente, mayor prioridad)
-    ((Rs1E == RdM) && RegWriteM && (Rs1E != 5'b0)) ? 2'b10 :
-    // Forwarding desde MEM/WB
-    ((Rs1E == RdW) && RegWriteW && (Rs1E != 5'b0)) ? 2'b01 :
-    // Sin forwarding, usar valor del register file
+  assign ForwardAE =
+    FwdExMemA ? 2'b10 : // Prioridad más alta
+    FwdMemWbA ? 2'b01 : // Solo si no hay FwdExMem
     2'b00;
 
   // Forwarding para SrcB (Rs2E)
-  // Prioridad: EX/MEM > MEM/WB > Normal
-  assign ForwardBE = 
-    // Forwarding desde EX/MEM (más reciente, mayor prioridad)
-    ((Rs2E == RdM) && RegWriteM && (Rs2E != 5'b0)) ? 2'b10 :
-    // Forwarding desde MEM/WB
-    ((Rs2E == RdW) && RegWriteW && (Rs2E != 5'b0)) ? 2'b01 :
-    // Sin forwarding, usar valor del register file
+  assign ForwardBE =
+    FwdExMemB ? 2'b10 : // Prioridad más alta
+    FwdMemWbB ? 2'b01 : // Solo si no hay FwdExMem
     2'b00;
 
-  // ===== LOAD-USE HAZARD DETECTION =====
+  // 
+
+  // ===== LOAD-USE HAZARD DETECTION (Sin Modificar) =====
   // Detectar si la instrucción en EX es un lw (load word)
   // ResultSrcE[0] = 1 indica que es una instrucción lw
   wire lwStall;
@@ -57,25 +64,11 @@ module hazard_unit(
                    ((Rs1D == RdE) || (Rs2D == RdE)) &&  // Dependencia RAW
                    (RdE != 5'b0);  // No hacer stall para x0
   
-  // ===== CONTROL HAZARD HANDLING =====
-  // Cuando se toma un salto (beq, bne, jal, jalr), las instrucciones
-  // que ya están en IF y ID son incorrectas y deben descartarse
+  // ===== CONTROL HAZARD HANDLING (Sin Modificar) =====
   
-  // Reglas de propagación:
-  // 1. Load-use hazard:
-  //    - StallF = 1: No avanzar PC
-  //    - StallD = 1: Mantener instrucción en ID
-  //    - FlushE = 1: Insertar NOP en EX
-  //
-  // 2. Control hazard (salto tomado):
-  //    - FlushD = 1: Descartar instrucción en ID
-  //    - FlushE = 1: Descartar instrucción en EX
-  //    - StallF = 0: PC avanza al target del salto
-  //    - StallD = 0: ID acepta nueva instrucción
-  
-  assign StallF = lwStall;           // Solo stall en load-use
-  assign StallD = lwStall;           // Solo stall en load-use
-  assign FlushD = PCSrcE;            // Flush ID cuando hay salto tomado
-  assign FlushE = lwStall | PCSrcE;  // Flush EX en load-use o salto tomado
+  assign StallF = lwStall;            // Solo stall en load-use
+  assign StallD = lwStall;            // Solo stall en load-use
+  assign FlushD = PCSrcE;             // Flush ID cuando hay salto tomado
+  assign FlushE = lwStall | PCSrcE;   // Flush EX en load-use o salto tomado
 
 endmodule
